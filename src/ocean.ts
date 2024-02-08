@@ -6,7 +6,7 @@ import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Water } from './water';
 import { Sky } from './sky';
-import { createTorusGeometry } from './framework';
+import { createTorusGeometry, ring } from './framework';
 
 let container, stats;
 let camera, scene, renderer;
@@ -31,7 +31,7 @@ export function init() {
     scene = new THREE.Scene();
 
     camera = new THREE.PerspectiveCamera( 50, window.innerWidth / window.innerHeight, 1, 20000 );
-    camera.position.set( 400, 30, 100 );
+    camera.position.set( 800, 300, 150 );
 
     //
 
@@ -112,10 +112,24 @@ export function init() {
 
     //const geometry = new THREE.BoxGeometry( 30, 30, 10 );
 
-    const geometry = createTorusGeometry(5, 92.5, 20, 500)
-    const material = new THREE.MeshStandardMaterial( { roughness: 0 } );
+    const redMaterial = new THREE.MeshStandardMaterial({ roughness: 0.25 ,
+        shininess: 100, // Уровень блеска (от 0 до 100)
+});
+ 
+redMaterial.color.set(0x77ccdd);
 
-    mesh = new THREE.Mesh( geometry, material );
+
+
+    //  const geometry =   createTorusGeometry(6.5, 192.5, 500, 15)
+ 
+  
+    //  const material = new THREE.MeshStandardMaterial( { roughness: 0 } );
+
+    //  mesh = new THREE.Mesh( geometry, redMaterial );
+
+   mesh=ring()
+ //  mesh.distan.x=Math.PI/90
+ //  mesh.rotation.x = - Math.PI / 2;
     scene.add( mesh );
 
     //
@@ -175,8 +189,8 @@ export function render() {
 
     const time = performance.now() * 0.001;
 
-    mesh.position.y = Math.sin( time ) / 10 + 10;
-    mesh.rotation.x =  Math.PI/2;
+    mesh.position.y = Math.sin( time ) / 10 + 10-192;
+//    mesh.rotation.x =  Math.PI/2;
     // mesh.position.y = Math.sin( time ) * 20 + 5;
     // mesh.rotation.x = time * 0.5;
     // mesh.rotation.z = time * 0.51;

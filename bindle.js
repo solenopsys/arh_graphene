@@ -7101,6 +7101,17 @@ var WebGLUniformsGroups = function(gl, info, capabilities, state) {
     dispose
   };
 };
+var isUniqueEdge = function(start, end, edges) {
+  const hash1 = `${start.x},${start.y},${start.z}-${end.x},${end.y},${end.z}`;
+  const hash2 = `${end.x},${end.y},${end.z}-${start.x},${start.y},${start.z}`;
+  if (edges.has(hash1) === true || edges.has(hash2) === true) {
+    return false;
+  } else {
+    edges.add(hash1);
+    edges.add(hash2);
+    return true;
+  }
+};
 var convertArray = function(array, type, forceClone) {
   if (!array || !forceClone && array.constructor === type)
     return array;
@@ -17901,6 +17912,444 @@ class Scene extends Object3D {
     return data;
   }
 }
+class LineBasicMaterial extends Material {
+  constructor(parameters) {
+    super();
+    this.isLineBasicMaterial = true;
+    this.type = "LineBasicMaterial";
+    this.color = new Color(16777215);
+    this.map = null;
+    this.linewidth = 1;
+    this.linecap = "round";
+    this.linejoin = "round";
+    this.fog = true;
+    this.setValues(parameters);
+  }
+  copy(source) {
+    super.copy(source);
+    this.color.copy(source.color);
+    this.map = source.map;
+    this.linewidth = source.linewidth;
+    this.linecap = source.linecap;
+    this.linejoin = source.linejoin;
+    this.fog = source.fog;
+    return this;
+  }
+}
+var _start$1 = new Vector3;
+var _end$1 = new Vector3;
+var _inverseMatrix$1 = new Matrix4;
+var _ray$1 = new Ray;
+var _sphere$1 = new Sphere;
+
+class Line extends Object3D {
+  constructor(geometry = new BufferGeometry, material = new LineBasicMaterial) {
+    super();
+    this.isLine = true;
+    this.type = "Line";
+    this.geometry = geometry;
+    this.material = material;
+    this.updateMorphTargets();
+  }
+  copy(source, recursive) {
+    super.copy(source, recursive);
+    this.material = Array.isArray(source.material) ? source.material.slice() : source.material;
+    this.geometry = source.geometry;
+    return this;
+  }
+  computeLineDistances() {
+    const geometry = this.geometry;
+    if (geometry.index === null) {
+      const positionAttribute = geometry.attributes.position;
+      const lineDistances = [0];
+      for (let i = 1, l = positionAttribute.count;i < l; i++) {
+        _start$1.fromBufferAttribute(positionAttribute, i - 1);
+        _end$1.fromBufferAttribute(positionAttribute, i);
+        lineDistances[i] = lineDistances[i - 1];
+        lineDistances[i] += _start$1.distanceTo(_end$1);
+      }
+      geometry.setAttribute("lineDistance", new Float32BufferAttribute(lineDistances, 1));
+    } else {
+      console.warn("THREE.Line.computeLineDistances(): Computation only possible with non-indexed BufferGeometry.");
+    }
+    return this;
+  }
+  raycast(raycaster, intersects) {
+    const geometry = this.geometry;
+    const matrixWorld = this.matrixWorld;
+    const threshold = raycaster.params.Line.threshold;
+    const drawRange = geometry.drawRange;
+    if (geometry.boundingSphere === null)
+      geometry.computeBoundingSphere();
+    _sphere$1.copy(geometry.boundingSphere);
+    _sphere$1.applyMatrix4(matrixWorld);
+    _sphere$1.radius += threshold;
+    if (raycaster.ray.intersectsSphere(_sphere$1) === false)
+      return;
+    _inverseMatrix$1.copy(matrixWorld).invert();
+    _ray$1.copy(raycaster.ray).applyMatrix4(_inverseMatrix$1);
+    const localThreshold = threshold / ((this.scale.x + this.scale.y + this.scale.z) / 3);
+    const localThresholdSq = localThreshold * localThreshold;
+    const vStart = new Vector3;
+    const vEnd = new Vector3;
+    const interSegment = new Vector3;
+    const interRay = new Vector3;
+    const step = this.isLineSegments ? 2 : 1;
+    const index = geometry.index;
+    const attributes = geometry.attributes;
+    const positionAttribute = attributes.position;
+    if (index !== null) {
+      const start = Math.max(0, drawRange.start);
+      const end = Math.min(index.count, drawRange.start + drawRange.count);
+      for (let i = start, l = end - 1;i < l; i += step) {
+        const a = index.getX(i);
+        const b = index.getX(i + 1);
+        vStart.fromBufferAttribute(positionAttribute, a);
+        vEnd.fromBufferAttribute(positionAttribute, b);
+        const distSq = _ray$1.distanceSqToSegment(vStart, vEnd, interRay, interSegment);
+        if (distSq > localThresholdSq)
+          continue;
+        interRay.applyMatrix4(this.matrixWorld);
+        const distance = raycaster.ray.origin.distanceTo(interRay);
+        if (distance < raycaster.near || distance > raycaster.far)
+          continue;
+        intersects.push({
+          distance,
+          point: interSegment.clone().applyMatrix4(this.matrixWorld),
+          index: i,
+          face: null,
+          faceIndex: null,
+          object: this
+        });
+      }
+    } else {
+      const start = Math.max(0, drawRange.start);
+      const end = Math.min(positionAttribute.count, drawRange.start + drawRange.count);
+      for (let i = start, l = end - 1;i < l; i += step) {
+        vStart.fromBufferAttribute(positionAttribute, i);
+        vEnd.fromBufferAttribute(positionAttribute, i + 1);
+        const distSq = _ray$1.distanceSqToSegment(vStart, vEnd, interRay, interSegment);
+        if (distSq > localThresholdSq)
+          continue;
+        interRay.applyMatrix4(this.matrixWorld);
+        const distance = raycaster.ray.origin.distanceTo(interRay);
+        if (distance < raycaster.near || distance > raycaster.far)
+          continue;
+        intersects.push({
+          distance,
+          point: interSegment.clone().applyMatrix4(this.matrixWorld),
+          index: i,
+          face: null,
+          faceIndex: null,
+          object: this
+        });
+      }
+    }
+  }
+  updateMorphTargets() {
+    const geometry = this.geometry;
+    const morphAttributes = geometry.morphAttributes;
+    const keys = Object.keys(morphAttributes);
+    if (keys.length > 0) {
+      const morphAttribute = morphAttributes[keys[0]];
+      if (morphAttribute !== undefined) {
+        this.morphTargetInfluences = [];
+        this.morphTargetDictionary = {};
+        for (let m = 0, ml = morphAttribute.length;m < ml; m++) {
+          const name = morphAttribute[m].name || String(m);
+          this.morphTargetInfluences.push(0);
+          this.morphTargetDictionary[name] = m;
+        }
+      }
+    }
+  }
+}
+var _start = new Vector3;
+var _end = new Vector3;
+
+class LineSegments extends Line {
+  constructor(geometry, material) {
+    super(geometry, material);
+    this.isLineSegments = true;
+    this.type = "LineSegments";
+  }
+  computeLineDistances() {
+    const geometry = this.geometry;
+    if (geometry.index === null) {
+      const positionAttribute = geometry.attributes.position;
+      const lineDistances = [];
+      for (let i = 0, l = positionAttribute.count;i < l; i += 2) {
+        _start.fromBufferAttribute(positionAttribute, i);
+        _end.fromBufferAttribute(positionAttribute, i + 1);
+        lineDistances[i] = i === 0 ? 0 : lineDistances[i - 1];
+        lineDistances[i + 1] = lineDistances[i] + _start.distanceTo(_end);
+      }
+      geometry.setAttribute("lineDistance", new Float32BufferAttribute(lineDistances, 1));
+    } else {
+      console.warn("THREE.LineSegments.computeLineDistances(): Computation only possible with non-indexed BufferGeometry.");
+    }
+    return this;
+  }
+}
+class CylinderGeometry extends BufferGeometry {
+  constructor(radiusTop = 1, radiusBottom = 1, height = 1, radialSegments = 32, heightSegments = 1, openEnded = false, thetaStart = 0, thetaLength = Math.PI * 2) {
+    super();
+    this.type = "CylinderGeometry";
+    this.parameters = {
+      radiusTop,
+      radiusBottom,
+      height,
+      radialSegments,
+      heightSegments,
+      openEnded,
+      thetaStart,
+      thetaLength
+    };
+    const scope = this;
+    radialSegments = Math.floor(radialSegments);
+    heightSegments = Math.floor(heightSegments);
+    const indices = [];
+    const vertices = [];
+    const normals = [];
+    const uvs = [];
+    let index = 0;
+    const indexArray = [];
+    const halfHeight = height / 2;
+    let groupStart = 0;
+    generateTorso();
+    if (openEnded === false) {
+      if (radiusTop > 0)
+        generateCap(true);
+      if (radiusBottom > 0)
+        generateCap(false);
+    }
+    this.setIndex(indices);
+    this.setAttribute("position", new Float32BufferAttribute(vertices, 3));
+    this.setAttribute("normal", new Float32BufferAttribute(normals, 3));
+    this.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+    function generateTorso() {
+      const normal = new Vector3;
+      const vertex2 = new Vector3;
+      let groupCount = 0;
+      const slope = (radiusBottom - radiusTop) / height;
+      for (let y = 0;y <= heightSegments; y++) {
+        const indexRow = [];
+        const v = y / heightSegments;
+        const radius = v * (radiusBottom - radiusTop) + radiusTop;
+        for (let x = 0;x <= radialSegments; x++) {
+          const u = x / radialSegments;
+          const theta = u * thetaLength + thetaStart;
+          const sinTheta = Math.sin(theta);
+          const cosTheta = Math.cos(theta);
+          vertex2.x = radius * sinTheta;
+          vertex2.y = -v * height + halfHeight;
+          vertex2.z = radius * cosTheta;
+          vertices.push(vertex2.x, vertex2.y, vertex2.z);
+          normal.set(sinTheta, slope, cosTheta).normalize();
+          normals.push(normal.x, normal.y, normal.z);
+          uvs.push(u, 1 - v);
+          indexRow.push(index++);
+        }
+        indexArray.push(indexRow);
+      }
+      for (let x = 0;x < radialSegments; x++) {
+        for (let y = 0;y < heightSegments; y++) {
+          const a = indexArray[y][x];
+          const b = indexArray[y + 1][x];
+          const c = indexArray[y + 1][x + 1];
+          const d = indexArray[y][x + 1];
+          indices.push(a, b, d);
+          indices.push(b, c, d);
+          groupCount += 6;
+        }
+      }
+      scope.addGroup(groupStart, groupCount, 0);
+      groupStart += groupCount;
+    }
+    function generateCap(top) {
+      const centerIndexStart = index;
+      const uv = new Vector2;
+      const vertex2 = new Vector3;
+      let groupCount = 0;
+      const radius = top === true ? radiusTop : radiusBottom;
+      const sign = top === true ? 1 : -1;
+      for (let x = 1;x <= radialSegments; x++) {
+        vertices.push(0, halfHeight * sign, 0);
+        normals.push(0, sign, 0);
+        uvs.push(0.5, 0.5);
+        index++;
+      }
+      const centerIndexEnd = index;
+      for (let x = 0;x <= radialSegments; x++) {
+        const u = x / radialSegments;
+        const theta = u * thetaLength + thetaStart;
+        const cosTheta = Math.cos(theta);
+        const sinTheta = Math.sin(theta);
+        vertex2.x = radius * sinTheta;
+        vertex2.y = halfHeight * sign;
+        vertex2.z = radius * cosTheta;
+        vertices.push(vertex2.x, vertex2.y, vertex2.z);
+        normals.push(0, sign, 0);
+        uv.x = cosTheta * 0.5 + 0.5;
+        uv.y = sinTheta * 0.5 * sign + 0.5;
+        uvs.push(uv.x, uv.y);
+        index++;
+      }
+      for (let x = 0;x < radialSegments; x++) {
+        const c = centerIndexStart + x;
+        const i = centerIndexEnd + x;
+        if (top === true) {
+          indices.push(i, i + 1, c);
+        } else {
+          indices.push(i + 1, i, c);
+        }
+        groupCount += 3;
+      }
+      scope.addGroup(groupStart, groupCount, top === true ? 1 : 2);
+      groupStart += groupCount;
+    }
+  }
+  copy(source) {
+    super.copy(source);
+    this.parameters = Object.assign({}, source.parameters);
+    return this;
+  }
+  static fromJSON(data) {
+    return new CylinderGeometry(data.radiusTop, data.radiusBottom, data.height, data.radialSegments, data.heightSegments, data.openEnded, data.thetaStart, data.thetaLength);
+  }
+}
+class SphereGeometry extends BufferGeometry {
+  constructor(radius = 1, widthSegments = 32, heightSegments = 16, phiStart = 0, phiLength = Math.PI * 2, thetaStart = 0, thetaLength = Math.PI) {
+    super();
+    this.type = "SphereGeometry";
+    this.parameters = {
+      radius,
+      widthSegments,
+      heightSegments,
+      phiStart,
+      phiLength,
+      thetaStart,
+      thetaLength
+    };
+    widthSegments = Math.max(3, Math.floor(widthSegments));
+    heightSegments = Math.max(2, Math.floor(heightSegments));
+    const thetaEnd = Math.min(thetaStart + thetaLength, Math.PI);
+    let index = 0;
+    const grid = [];
+    const vertex2 = new Vector3;
+    const normal = new Vector3;
+    const indices = [];
+    const vertices = [];
+    const normals = [];
+    const uvs = [];
+    for (let iy = 0;iy <= heightSegments; iy++) {
+      const verticesRow = [];
+      const v = iy / heightSegments;
+      let uOffset = 0;
+      if (iy === 0 && thetaStart === 0) {
+        uOffset = 0.5 / widthSegments;
+      } else if (iy === heightSegments && thetaEnd === Math.PI) {
+        uOffset = -0.5 / widthSegments;
+      }
+      for (let ix = 0;ix <= widthSegments; ix++) {
+        const u = ix / widthSegments;
+        vertex2.x = -radius * Math.cos(phiStart + u * phiLength) * Math.sin(thetaStart + v * thetaLength);
+        vertex2.y = radius * Math.cos(thetaStart + v * thetaLength);
+        vertex2.z = radius * Math.sin(phiStart + u * phiLength) * Math.sin(thetaStart + v * thetaLength);
+        vertices.push(vertex2.x, vertex2.y, vertex2.z);
+        normal.copy(vertex2).normalize();
+        normals.push(normal.x, normal.y, normal.z);
+        uvs.push(u + uOffset, 1 - v);
+        verticesRow.push(index++);
+      }
+      grid.push(verticesRow);
+    }
+    for (let iy = 0;iy < heightSegments; iy++) {
+      for (let ix = 0;ix < widthSegments; ix++) {
+        const a = grid[iy][ix + 1];
+        const b = grid[iy][ix];
+        const c = grid[iy + 1][ix];
+        const d = grid[iy + 1][ix + 1];
+        if (iy !== 0 || thetaStart > 0)
+          indices.push(a, b, d);
+        if (iy !== heightSegments - 1 || thetaEnd < Math.PI)
+          indices.push(b, c, d);
+      }
+    }
+    this.setIndex(indices);
+    this.setAttribute("position", new Float32BufferAttribute(vertices, 3));
+    this.setAttribute("normal", new Float32BufferAttribute(normals, 3));
+    this.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+  }
+  copy(source) {
+    super.copy(source);
+    this.parameters = Object.assign({}, source.parameters);
+    return this;
+  }
+  static fromJSON(data) {
+    return new SphereGeometry(data.radius, data.widthSegments, data.heightSegments, data.phiStart, data.phiLength, data.thetaStart, data.thetaLength);
+  }
+}
+class WireframeGeometry extends BufferGeometry {
+  constructor(geometry = null) {
+    super();
+    this.type = "WireframeGeometry";
+    this.parameters = {
+      geometry
+    };
+    if (geometry !== null) {
+      const vertices = [];
+      const edges = new Set;
+      const start = new Vector3;
+      const end = new Vector3;
+      if (geometry.index !== null) {
+        const position = geometry.attributes.position;
+        const indices = geometry.index;
+        let groups = geometry.groups;
+        if (groups.length === 0) {
+          groups = [{ start: 0, count: indices.count, materialIndex: 0 }];
+        }
+        for (let o = 0, ol = groups.length;o < ol; ++o) {
+          const group = groups[o];
+          const groupStart = group.start;
+          const groupCount = group.count;
+          for (let i = groupStart, l = groupStart + groupCount;i < l; i += 3) {
+            for (let j = 0;j < 3; j++) {
+              const index1 = indices.getX(i + j);
+              const index2 = indices.getX(i + (j + 1) % 3);
+              start.fromBufferAttribute(position, index1);
+              end.fromBufferAttribute(position, index2);
+              if (isUniqueEdge(start, end, edges) === true) {
+                vertices.push(start.x, start.y, start.z);
+                vertices.push(end.x, end.y, end.z);
+              }
+            }
+          }
+        }
+      } else {
+        const position = geometry.attributes.position;
+        for (let i = 0, l = position.count / 3;i < l; i++) {
+          for (let j = 0;j < 3; j++) {
+            const index1 = 3 * i + j;
+            const index2 = 3 * i + (j + 1) % 3;
+            start.fromBufferAttribute(position, index1);
+            end.fromBufferAttribute(position, index2);
+            if (isUniqueEdge(start, end, edges) === true) {
+              vertices.push(start.x, start.y, start.z);
+              vertices.push(end.x, end.y, end.z);
+            }
+          }
+        }
+      }
+      this.setAttribute("position", new Float32BufferAttribute(vertices, 3));
+    }
+  }
+  copy(source) {
+    super.copy(source);
+    this.parameters = Object.assign({}, source.parameters);
+    return this;
+  }
+}
 class MeshStandardMaterial extends Material {
   constructor(parameters) {
     super();
@@ -20809,6 +21258,97 @@ Sky.SkyShader = {
 };
 
 // src/framework.ts
+function column(bottomDiameter, topDiametr, height, material) {
+  const cylinderGeometry = new CylinderGeometry(topDiametr / 2, bottomDiameter / 2, height, 32);
+  const cone = new Mesh(cylinderGeometry, material);
+  return cone;
+}
+function connector(diameter) {
+  const cylinderGeometry = new SphereGeometry(diameter / 2, 32, 32);
+  const cone = new Mesh(cylinderGeometry, blueMaterial);
+  return cone;
+}
+function genSegment(h2, w, d1, d2, d3, material) {
+  const assembly = new Group;
+  const topColumnDiamter = d3;
+  const midleColumnDiamter = d2;
+  const bottomColumnDiameter = d1;
+  const roundPerset = 1.25;
+  const halfH = h2 / 2;
+  const halfW = w / 2;
+  const angle = Math.PI / 3;
+  const col = column(midleColumnDiamter, topColumnDiamter, h2, material);
+  assembly.add(col);
+  const colBottomLeft = column(bottomColumnDiameter, midleColumnDiamter, w, material);
+  colBottomLeft.position.y = colBottomLeft.position.y - halfH - halfW * Math.cos(angle);
+  colBottomLeft.position.z = colBottomLeft.position.z - halfW * Math.sin(angle);
+  colBottomLeft.rotation.x = angle;
+  assembly.add(colBottomLeft);
+  const colBottomRigth = column(bottomColumnDiameter, midleColumnDiamter, w, material);
+  colBottomRigth.position.y = colBottomRigth.position.y - halfH - halfW * Math.cos(angle);
+  colBottomRigth.position.z = colBottomRigth.position.z + halfW * Math.sin(angle);
+  colBottomRigth.rotation.x = -angle;
+  assembly.add(colBottomRigth);
+  const conTop = connector(topColumnDiamter * roundPerset);
+  conTop.position.y = conTop.position.y + halfH;
+  assembly.add(conTop);
+  const conBottom = connector(midleColumnDiamter * roundPerset);
+  conBottom.position.y = conBottom.position.y - halfH;
+  assembly.add(conBottom);
+  const conBottomLeft = connector(bottomColumnDiameter * roundPerset);
+  conBottomLeft.position.y = conBottomLeft.position.y - halfH - w * Math.cos(angle);
+  conBottomLeft.position.z = conBottomLeft.position.z + w * Math.sin(angle);
+  assembly.add(conBottomLeft);
+  const conBottomRight = connector(bottomColumnDiameter * roundPerset);
+  conBottomRight.position.y = conBottomRight.position.y - halfH - w * Math.cos(angle);
+  conBottomRight.position.z = conBottomRight.position.z - w * Math.sin(angle);
+  assembly.add(conBottomRight);
+  return assembly;
+}
+function genRoundArray(conf, d1, d2, d3) {
+  const group = genSegment(conf.h, conf.w, d1, d2, d3, conf.material);
+  const assembly = new Group;
+  for (let i2 = 0;i2 < conf.countSegments; i2++) {
+    const clonedObject = group.clone();
+    const angleInDegrees = i2 * conf.itemAngle;
+    const angleInRadians = MathUtils.degToRad(angleInDegrees);
+    const x = conf.radius * Math.cos(angleInRadians);
+    const z = conf.radius * Math.sin(angleInRadians);
+    clonedObject.position.set(x, 0, z);
+    clonedObject.lookAt(0, 0, 0);
+    clonedObject.rotation.y -= MathUtils.degToRad(90);
+    assembly.add(clonedObject);
+  }
+  return assembly;
+}
+function genPerimetr() {
+  const assembly = new Group;
+  const conf = new RingParams(12, 12, 600, blueMaterial);
+  const max = 0.75;
+  const minus = 0.08;
+  const group1 = genRoundArray(conf, max, max - minus, max - minus * 2);
+  assembly.add(group1);
+  const group2 = genRoundArray(conf, max - minus * 3, max - minus - minus * 4, max - minus * 5);
+  group2.position.y = group2.position.y + 18;
+  group2.rotation.y = 0.035;
+  assembly.add(group2);
+  return assembly;
+}
+function genFundament(h2, w, d2, mateial, levels, cancel) {
+  const assembly = new Group;
+  const conf = new RingParams(h2, w, d2, mateial);
+  let current = 2.4;
+  const minus = 0.06;
+  for (let level = 0;level < levels; level++) {
+    const group = genRoundArray(conf, current, current - minus, current - minus * 2);
+    assembly.add(level);
+    current = current - minus * 3;
+    group.position.y = group.position.y + 18 * level;
+    group.rotation.y = 0.055 * level % 2;
+    console.log("CURREND DIAMETER", current);
+  }
+  return assembly;
+}
 function createTorusGeometry(innerRadius, outerRadius, radialSegments, tubularSegments) {
   const geometry = new BufferGeometry;
   const vertices = [];
@@ -20832,6 +21372,26 @@ function createTorusGeometry(innerRadius, outerRadius, radialSegments, tubularSe
   geometry.setIndex(indices);
   geometry.setAttribute("position", new Float32BufferAttribute(vertices, 3));
   return geometry;
+}
+function ring() {
+  const assembly = new Group;
+  const material = new LineBasicMaterial({ color: 5592405 });
+  const torGeopm = createTorusGeometry(6.5, 192.5, 500, 15);
+  const wireframeGeometry = new WireframeGeometry(torGeopm);
+  const tor = new LineSegments(wireframeGeometry, material);
+  tor.rotation.x = Math.PI / 2;
+  tor.position.y = 190;
+  assembly.add(tor);
+  const levels = 11;
+  const ext = genFundament(12, 12, 400, redMaterial, levels, 9);
+  assembly.add(ext);
+  const bl = genFundament(12, 10.4, 370, blueMaterial, levels, 9);
+  bl.rotation.y = 0.04;
+  assembly.add(bl);
+  const perimetr = genPerimetr();
+  perimetr.position.y = 185;
+  assembly.add(perimetr);
+  return assembly;
 }
 var redMaterial = new MeshStandardMaterial({ roughness: 0.25 });
 var greenMaterial = new MeshStandardMaterial({ roughness: 0.25 });
@@ -20875,7 +21435,7 @@ function init() {
   container.appendChild(renderer.domElement);
   scene = new Scene;
   camera = new PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 20000);
-  camera.position.set(400, 30, 100);
+  camera.position.set(800, 300, 150);
   sun = new Vector3;
   const waterGeometry = new PlaneGeometry(1e4, 1e4);
   water2 = new Water(waterGeometry, {
@@ -20921,9 +21481,12 @@ function init() {
     scene.environment = renderTarget.texture;
   }
   updateSun();
-  const geometry = createTorusGeometry(5, 92.5, 20, 500);
-  const material = new MeshStandardMaterial({ roughness: 0 });
-  mesh = new Mesh(geometry, material);
+  const redMaterial2 = new MeshStandardMaterial({
+    roughness: 0.25,
+    shininess: 100
+  });
+  redMaterial2.color.set(7851229);
+  mesh = ring();
   scene.add(mesh);
   controls = new OrbitControls(camera, renderer.domElement);
   controls.maxPolarAngle = Math.PI * 0.495;
@@ -20957,8 +21520,7 @@ function animate() {
 }
 function render() {
   const time = performance.now() * 0.001;
-  mesh.position.y = Math.sin(time) / 10 + 10;
-  mesh.rotation.x = Math.PI / 2;
+  mesh.position.y = Math.sin(time) / 10 + 10 - 192;
   water2.material.uniforms["time"].value += 0.016666666666666666;
   renderer.render(scene, camera);
 }

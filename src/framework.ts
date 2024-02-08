@@ -177,42 +177,45 @@ class RingParams {
 export function genPerimetr() {
     const assembly = new THREE.Group();
 
-    const conf = new RingParams(12, 12, 300, blueMaterial)
+    const conf = new RingParams(12, 12, 600, blueMaterial)
 
-    const max = 1.5
-    const minus = 0.15
+    const max = 0.75
+    const minus = 0.08
 
     const group1 = genRoundArray(conf, max, max - minus, max - minus * 2)
     assembly.add(group1);
     const group2 = genRoundArray(conf, max - minus * 3, max - minus - minus * 4, max - minus * 5)
     group2.position.y = group2.position.y + 18
-    group2.rotation.y = 0.07
+    group2.rotation.y = 0.035
     assembly.add(group2);
     return assembly
 }
 
 
-export function genFundament(h, w, d, mateial) {
+export function genFundament(h, w, d, mateial, levels, cancel) {
     const assembly = new THREE.Group();
 
     const conf = new RingParams(h, w, d, mateial)
 
-    let current = 2.0
-    const minus = 0.07
+    let current = 2.4
+    const minus = 0.06
 
 
-    const levels = 8;
 
     for (let level = 0; level < levels; level++) {
         const group = genRoundArray(conf, current, current - minus, current - minus * 2)
 
+     //   if(level>=cancel-1){
 
-        assembly.add(group);
+        assembly.add(level);
+   // }
 
         current = current - minus * 3
 
         group.position.y = group.position.y + 18 * level
-        group.rotation.y = 0.10 * level % 2
+        group.rotation.y = 0.055 * level % 2
+
+    
 
         console.log("CURREND DIAMETER", current)
     }
@@ -256,28 +259,39 @@ export function createTorusGeometry(innerRadius, outerRadius, radialSegments, tu
 }
 
 
+export function ring() {
+    const assembly = new THREE.Group();
+
+    const material = new THREE.LineBasicMaterial({ color: 0x555555 });
+
+    const torGeopm = createTorusGeometry(6.5, 192.5, 500, 15)
+    const wireframeGeometry = new THREE.WireframeGeometry(torGeopm);
+
+ 
+   const tor = new THREE.LineSegments(wireframeGeometry, material);
+
+    //   const tor =  createTorusGeometry2(2, 4, 16, 100)
+    tor.rotation.x = Math.PI / 2
+    tor.position.y = 190
+    assembly.add(tor);
+    const levels=11
+   const ext = genFundament(12, 12, 400, redMaterial, levels,9);
+   assembly.add(ext);
+   const bl = genFundament(12, 10.4, 370, blueMaterial,levels,9)
+   bl.rotation.y = 0.040
+   assembly.add(bl);
+
+    const perimetr=genPerimetr()
+    perimetr.position.y = 185
+    assembly.add(perimetr);
+
+    return assembly
+}
+
 
 
 export function genSceneObjects(scene) {
 
-    const torGeopm = createTorusGeometry(5, 92.5, 20, 500)
-
-    const material = new THREE.LineBasicMaterial({ color: 0x00ff00 });
-
-    const wireframeGeometry = new THREE.WireframeGeometry(torGeopm);
-
-
-    const tor = new THREE.LineSegments(wireframeGeometry, material);
-
-    //  const tor =  createTorusGeometry2(2, 4, 16, 100)
-    tor.rotation.x = Math.PI / 2
-    tor.position.y = 135
-    scene.add(genFundament(12, 12, 200, redMaterial));
-    const bl = genFundament(12, 10.4, 170, blueMaterial)
-    bl.rotation.y = 0.10
-    scene.add(bl);
-    scene.add(tor);
-    const perimetr=genPerimetr()
-    perimetr.position.y = 135
-    scene.add(perimetr);
+    const assembly=ring();
+    scene.add(assembly);
 }

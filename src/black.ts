@@ -45,8 +45,8 @@ export async function init() {
 
 	// camera setup
 	camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 50);
-	camera.position.set(500, 1.5, 2);
-	camera.far = 700;
+	camera.position.set(800, 1.5, 2);
+	camera.far = 1000;
 	camera.updateProjectionMatrix();
 
 	// controls
