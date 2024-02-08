@@ -13,3 +13,16 @@ https://hacks.mozilla.org/2014/03/lessons-learnt-building-vizicities/
 https://www.youtube.com/watch?v=3jgAcUKTyKw
 
 https://cubegl.org/#/
+
+
+https://martinrenou.github.io/threejs-caustics/
+
+water simulation
+
+https://www.creativebloq.com/how-to/create-liquid-effects-with-webgl
+
+https://www.youtube.com/watch?v=R0O_9bp3EKQ
+
+https://www.youtube.com/watch?v=IrUehq6vJss
+
+https://david.li/waves/

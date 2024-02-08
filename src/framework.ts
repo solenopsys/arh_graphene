@@ -187,7 +187,11 @@ export function genPerimetr() {
     const group2 = genRoundArray(conf, max - minus * 3, max - minus - minus * 4, max - minus * 5)
     group2.position.y = group2.position.y + 18
     group2.rotation.y = 0.035
-    assembly.add(group2);
+
+    // const group3 = genRoundArray(conf, max - minus * 3, max - minus - minus * 4, max - minus * 5)
+    // group3.position.y = group3.position.y + 18*2
+  
+    // assembly.add(group3);
     return assembly
 }
 
